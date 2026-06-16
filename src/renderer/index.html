@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#fafafa" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: file: safe-file:; img-src 'self' data: blob: file: safe-file: https:; font-src 'self' data: file:;" />
+    <title>来MarkDown</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'><rect width='256' height='256' rx='56' fill='%23fbbf24'/><text x='128' y='178' font-family='PingFang SC,Microsoft YaHei,serif' font-size='160' font-weight='900' text-anchor='middle' fill='%233f1d00'>来</text></svg>" />
+    <style>
+      /* 首屏闪屏保护：JS 跑起来前默认就是浅色，避免深色闪一下 */
+      html, body { background: #fafafa; color: #18181b; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

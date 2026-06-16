@@ -1,0 +1,77 @@
+{
+  "name": "lai-markdown-2",
+  "version": "2.0.0",
+  "description": "来MarkDown 2.0 — 现代化 Markdown 桌面编辑器",
+  "main": "out/main/index.js",
+  "author": "来MarkDown",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "tsc -p tsconfig.main.json && node scripts/dev.mjs",
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build": "pnpm run build:renderer && pnpm run build:main",
+    "start": "pnpm run build && electron .",
+    "package": "pnpm run build && electron-builder --win --x64",
+    "type-check": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.6.0",
+    "@codemirror/lang-markdown": "^6.3.0",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/search": "^6.5.6",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.35.0",
+    "@lezer/highlight": "^1.2.1",
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-dropdown-menu": "^2.1.2",
+    "@radix-ui/react-tooltip": "^1.1.3",
+    "clsx": "^2.1.1",
+    "codemirror": "^6.0.1",
+    "docx": "^8.5.0",
+    "electron-log": "^5.2.0",
+    "electron-store": "^8.2.0",
+    "file-saver": "^2.0.5",
+    "html2pdf.js": "^0.10.2",
+    "katex": "^0.16.11",
+    "lucide-react": "^0.454.0",
+    "marked": "^11.2.0",
+    "mermaid": "^10.9.1",
+    "prismjs": "^1.29.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/prismjs": "^1.26.6",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^32.0.1",
+    "electron-builder": "^25.0.5",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.6"
+  },
+  "build": {
+    "appId": "com.laimarkdown.app",
+    "productName": "来MarkDown",
+    "directories": {
+      "buildResources": "resources",
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

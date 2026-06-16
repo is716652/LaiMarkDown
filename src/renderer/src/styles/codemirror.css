@@ -1,0 +1,10 @@
+/* CodeMirror 6 自定义微调 */
+.cm-editor { height: 100%; }
+.cm-editor.cm-focused { outline: none; }
+.cm-scroller { font-family: var(--cm-font-family, "JetBrains Mono", Consolas, monospace) !important; }
+.cm-gutters { padding-right: 4px; min-width: 32px; }
+.cm-foldGutter .cm-gutterElement { cursor: pointer; }
+.cm-panels { background: var(--surface) !important; color: var(--text) !important; }
+.cm-panels input { background: var(--surface2) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+.cm-panels button { background: var(--muted) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
+.cm-tooltip { background: var(--surface) !important; color: var(--text) !important; border: 1px solid var(--border) !important; }
