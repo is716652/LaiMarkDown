@@ -262,6 +262,9 @@ export const App: React.FC = () => {
         {sidebarOpen && <Sidebar />}
         <main className="app-main">
           <TabBar />
+          {/* 工具栏提到 work-area 上方 → 跨整个窗口宽度（左右分栏时不会被预览区挡住）。
+              预览模式没有编辑器 → 不显示。 */}
+          {viewMode !== 'preview' && <FormatToolbar editorRef={editorRef} />}
           <div
             ref={workAreaRef}
             className={`work-area ${splitClass} ${viewMode === 'split-h' || viewMode === 'split-v' ? 'split' : 'single'} ${splitSwap ? 'swapped' : ''}`}
@@ -272,10 +275,7 @@ export const App: React.FC = () => {
               className="pane pane-editor"
               style={{ display: showEditor ? '' : 'none' }}
             >
-              <FormatToolbar editorRef={editorRef} />
-              <div className="editor-content">
-                <Editor ref={editorRef} />
-              </div>
+              <Editor ref={editorRef} />
             </section>
             {showEditor && showPreview && (
               <div className="pane-divider" onMouseDown={onDividerMouseDown} title="拖动调整宽度" />

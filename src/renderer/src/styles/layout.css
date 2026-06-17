@@ -277,10 +277,6 @@
 .work-area.single .pane { flex: 1 1 0; }
 .pane-editor { background: var(--bg); }
 .pane-preview { background: var(--bg); }
-
-/* editor pane 内部布局：工具栏在上，编辑器在下 */
-.pane-editor { display: flex; flex-direction: column; }
-.editor-content { flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .pane-divider {
   background: var(--border);
   flex-shrink: 0;
@@ -485,6 +481,13 @@ body.dragging-divider-v .pane-divider { pointer-events: auto !important; }
   display: flex;
   flex-direction: column;
 }
+/* Portal 到 body 下的 popover：用 fixed 定位，不受父级 overflow 限制 */
+.ft-popover.ft-popover-portal {
+  position: fixed;
+  top: auto;
+  left: auto;
+  /* top/left 由 inline style 设置 */
+}
 .ft-popover-item {
   display: flex;
   align-items: center;
@@ -505,4 +508,29 @@ body.dragging-divider-v .pane-divider { pointer-events: auto !important; }
   background: var(--muted);
   padding: 1px 6px;
   border-radius: 3px;
+}
+
+/* 数学公式下拉：宽一点、符号列固定、字体等宽（让 LaTeX 看着整齐） */
+.ft-popover.ft-popover-math {
+  min-width: 280px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.ft-popover-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+.ft-math-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 22px;
+  font-family: 'JetBrains Mono', Consolas, 'KaTeX_Main', serif;
+  font-size: 13px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 3px;
+  flex-shrink: 0;
 }
