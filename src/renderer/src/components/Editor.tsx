@@ -32,6 +32,18 @@ export type EditorHandle = {
   getScrollFraction: () => number;
   setScrollFraction: (f: number) => void;
   goToLine: (line: number) => void;
+  // ---- MD 格式化能力（供 FormatToolbar 调用）----
+  /** 包裹选中文本。无选区时插入 before+placeholder+after 并选中 placeholder。
+   *  - bold('**') / italic('*') / strike('~~') / code('`')
+   *  - link('[', '](url)', 'text')  */
+  wrapSelection: (before: string, after?: string, placeholder?: string) => void;
+  /** 给当前行（或选区覆盖的每一行）加行首前缀。多行选区会自动每行都加。
+   *  - heading('# ') / quote('> ') / bullet('- ') / num('1. ') / task('- [ ] ') / hr('') */
+  linePrefix: (prefix: string) => void;
+  /** 在光标处插入一段多行模板（替换当前选区），光标定位到 cursorOffset 处。
+   *  可选 selectEndOffset 用来选中一段（如占位文本）。
+   *  - codeBlock / table / image */
+  insertBlock: (template: string, cursorOffset: number, selectEndOffset?: number) => void;
 };
 
 export const Editor = forwardRef<EditorHandle>(function EditorFn(_props, ref) {
@@ -106,6 +118,49 @@ export const Editor = forwardRef<EditorHandle>(function EditorFn(_props, ref) {
               key: 'Mod-/',
               run: () => {
                 window.dispatchEvent(new CustomEvent('app:toggle-preview'));
+                return true;
+              },
+            },
+            // MD 格式化快捷键（Ctrl 在 Windows/Linux, Cmd 在 Mac）
+            {
+              key: 'Mod-b',
+              run: (v) => {
+                const sel = v.state.selection.main;
+                const txt = v.state.sliceDoc(sel.from, sel.to);
+                const ph = txt || '粗体文字';
+                v.dispatch({
+                  changes: { from: sel.from, to: sel.to, insert: '**' + ph + '**' },
+                  selection: { anchor: sel.from + 2, head: sel.from + 2 + ph.length },
+                  userEvent: 'input.format',
+                });
+                return true;
+              },
+            },
+            {
+              key: 'Mod-i',
+              run: (v) => {
+                const sel = v.state.selection.main;
+                const txt = v.state.sliceDoc(sel.from, sel.to);
+                const ph = txt || '斜体文字';
+                v.dispatch({
+                  changes: { from: sel.from, to: sel.to, insert: '*' + ph + '*' },
+                  selection: { anchor: sel.from + 1, head: sel.from + 1 + ph.length },
+                  userEvent: 'input.format',
+                });
+                return true;
+              },
+            },
+            {
+              key: 'Mod-k',
+              run: (v) => {
+                const sel = v.state.selection.main;
+                const txt = v.state.sliceDoc(sel.from, sel.to);
+                const ph = txt || '链接文字';
+                v.dispatch({
+                  changes: { from: sel.from, to: sel.to, insert: '[' + ph + '](https://)' },
+                  selection: { anchor: sel.from + 1, head: sel.from + 1 + ph.length },
+                  userEvent: 'input.format',
+                });
                 return true;
               },
             },
@@ -263,6 +318,77 @@ export const Editor = forwardRef<EditorHandle>(function EditorFn(_props, ref) {
         v.dispatch({
           selection: { anchor: pos },
           effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+        });
+        v.focus();
+      },
+
+      // ---- MD 格式化能力（供 FormatToolbar 调用）----
+      wrapSelection: (before, after, placeholder) => {
+        const v = viewRef.current;
+        if (!v) return;
+        const a = after ?? before;
+        const sel = v.state.selection.main;
+        const ph = placeholder ?? '';
+        if (sel.empty) {
+          // 没选区：插入 before + placeholder + after，选中 placeholder 让用户接着打
+          const insert = before + ph + a;
+          const cursorFrom = sel.from + before.length;
+          const cursorTo = cursorFrom + ph.length;
+          v.dispatch({
+            changes: { from: sel.from, insert },
+            selection: { anchor: cursorFrom, head: cursorTo },
+            userEvent: 'input.format',
+          });
+        } else {
+          // 有选区：包裹起来，并保持原选区在包裹后还是被选中（这样再点一次能"反包裹"）
+          const txt = v.state.sliceDoc(sel.from, sel.to);
+          v.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: before + txt + a },
+            selection: { anchor: sel.from + before.length, head: sel.from + before.length + txt.length },
+            userEvent: 'input.format',
+          });
+        }
+        v.focus();
+      },
+
+      linePrefix: (prefix) => {
+        const v = viewRef.current;
+        if (!v) return;
+        const sel = v.state.selection.main;
+        const startLine = v.state.doc.lineAt(sel.from);
+        const endLine = v.state.doc.lineAt(sel.to);
+        // CodeMirror 要求 changes 按位置升序；我们从上往下逐行加前缀，天然有序
+        const changes: { from: number; insert: string }[] = [];
+        for (let i = startLine.number; i <= endLine.number; i++) {
+          const line = v.state.doc.line(i);
+          changes.push({ from: line.from, insert: prefix });
+        }
+        // 选区跟着移动：每加一次前缀就往后挪 prefix.length
+        const delta = prefix.length * (endLine.number - startLine.number + 1);
+        v.dispatch({
+          changes,
+          selection: { anchor: sel.from + prefix.length, head: sel.to + delta },
+          userEvent: 'input.format',
+        });
+        v.focus();
+      },
+
+      insertBlock: (template, cursorOffset, selectEndOffset) => {
+        const v = viewRef.current;
+        if (!v) return;
+        const sel = v.state.selection.main;
+        const from = sel.from;
+        const to = sel.to;
+        // 把光标放在 from + cursorOffset
+        const cursorFrom = from + Math.max(0, Math.min(cursorOffset, template.length));
+        const cursorHead = selectEndOffset != null
+          ? from + Math.max(cursorFrom - from, Math.min(selectEndOffset, template.length))
+          : cursorFrom;
+        v.dispatch({
+          changes: { from, to, insert: template },
+          selection: { anchor: cursorFrom, head: cursorHead },
+          effects: EditorView.scrollIntoView(cursorFrom, { y: 'nearest' }),
+          userEvent: 'input.format',
         });
         v.focus();
       },

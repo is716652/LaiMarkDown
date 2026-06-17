@@ -41,3 +41,6 @@ logs/
 *.tmp
 *.bak
 verify-test.md
+verify*.png
+verify-fixed.png
+*.unzip_tmp

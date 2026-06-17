@@ -7,6 +7,7 @@ import { Editor, type EditorHandle } from './components/Editor';
 import { Preview, type PreviewHandle } from './components/Preview';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
+import { FormatToolbar } from './components/FormatToolbar';
 import { useEditorStore } from './stores/editor';
 import { useThemeStore } from './stores/theme';
 import { useSettingsStore } from './stores/settings';
@@ -271,7 +272,10 @@ export const App: React.FC = () => {
               className="pane pane-editor"
               style={{ display: showEditor ? '' : 'none' }}
             >
-              <Editor ref={editorRef} />
+              <FormatToolbar editorRef={editorRef} />
+              <div className="editor-content">
+                <Editor ref={editorRef} />
+              </div>
             </section>
             {showEditor && showPreview && (
               <div className="pane-divider" onMouseDown={onDividerMouseDown} title="拖动调整宽度" />
