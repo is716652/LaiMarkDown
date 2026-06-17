@@ -19,11 +19,15 @@ type EditorState = {
   showEditor: boolean;
   showPreview: boolean;
   splitHorizontal: boolean;
+  /** 大文件加载进度：null = 无加载中；非 null = { fileName, percent, totalBytes } */
+  largeFileLoad: { fileName: string; percent: number; totalBytes: number; loadedBytes: number } | null;
 };
 
 type EditorActions = {
   newTab: () => string;
   openFile: (filePath: string, content: string) => string;
+  /** 流式打开：先建空 tab，分批填充 */
+  openFileStream: (filePath: string, content: string) => string;
   closeTab: (id: string) => void;
   setActive: (id: string) => void;
   updateContent: (id: string, content: string) => void;
@@ -33,6 +37,7 @@ type EditorActions = {
   toggleTheme: () => void;
   setSplitSwap: (v: boolean) => void;
   activeTab: () => Tab | undefined;
+  setLargeFileLoad: (info: EditorState['largeFileLoad']) => void;
 };
 
 import { create } from 'zustand';
@@ -59,6 +64,7 @@ export const useEditorStore = create<EditorState & EditorActions>((set, get) => 
   showEditor: true,
   showPreview: true,
   splitHorizontal: true,
+  largeFileLoad: null,
 
   activeTab: () => get().tabs.find((t) => t.id === get().activeTabId),
 
@@ -72,6 +78,22 @@ export const useEditorStore = create<EditorState & EditorActions>((set, get) => 
   },
 
   openFile: (filePath, content) => {
+    const existing = get().tabs.find((t) => t.filePath === filePath);
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return existing.id;
+    }
+    const id = newId();
+    const title = filePath.split(/[\\/]/).pop() || '未命名';
+    set((s) => ({
+      tabs: [...s.tabs, { id, filePath, title, content, dirty: false }],
+      activeTabId: id,
+    }));
+    return id;
+  },
+
+  openFileStream: (filePath, content) => {
+    // 同 openFile，但 content 已分批填好（由 fileOps 流式注入）
     const existing = get().tabs.find((t) => t.filePath === filePath);
     if (existing) {
       set({ activeTabId: existing.id });
@@ -136,4 +158,5 @@ export const useEditorStore = create<EditorState & EditorActions>((set, get) => 
     });
   },
   setSplitSwap: (v) => set({ splitSwap: v }),
+  setLargeFileLoad: (info) => set({ largeFileLoad: info }),
 }));

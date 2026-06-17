@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo, memo, forwardRef, useImperativeHandle } from 'react';
 import { useEditorStore } from '../stores/editor';
 import { useSettingsStore } from '../stores/settings';
-import { renderMarkdown, rewriteRelativeImages } from '../utils/markdown';
+import { renderMarkdown, rewriteRelativeImages, injectSourceLine } from '../utils/markdown';
 import { debounce } from '../utils/debounce';
 import PrismWorker from '../utils/prism.worker?worker';
 
@@ -21,6 +21,11 @@ const DEBOUNCE_MS = 150;
 export type PreviewHandle = {
   getScrollFraction: () => number;
   setScrollFraction: (f: number) => void;
+  getScrollTop: () => number;
+  /** 滚动到源行号 line（1-based）对应的 block 元素；找不到则不滚 */
+  scrollToSourceLine: (line: number) => void;
+  /** 取所有 top-level block 的 [sourceLine, topOffset] 列表（用于行级滚动同步的精细化） */
+  getBlockAnchors: () => { line: number; top: number; bottom: number }[];
 };
 
 export const Preview = forwardRef<PreviewHandle>(function PreviewFn(_props, ref) {
@@ -61,6 +66,8 @@ export const Preview = forwardRef<PreviewHandle>(function PreviewFn(_props, ref)
     if (!el) return;
     const html = renderMarkdown(debouncedContent);
     el.innerHTML = html;
+    // 注入源行号（行级滚动同步用）
+    injectSourceLine(el, debouncedContent);
     rewriteRelativeImages(el, filePath);
     bindCopyButtons(el);
     highlightCodeBlocks(el); // async（Prism worker 异步回填会改 code.innerHTML 触发高度变化）
@@ -148,6 +155,43 @@ export const Preview = forwardRef<PreviewHandle>(function PreviewFn(_props, ref)
         if (!el) return;
         const max = el.scrollHeight - el.clientHeight;
         el.scrollTop = max * Math.max(0, Math.min(1, f));
+      },
+      getScrollTop: () => hostRef.current?.scrollTop ?? 0,
+      scrollToSourceLine: (line) => {
+        const el = hostRef.current;
+        if (!el) return;
+        const blocks = Array.from(el.children) as HTMLElement[];
+        if (blocks.length === 0) return;
+        // 找第一个 sourceLine >= line 的 block
+        let target: HTMLElement | null = null;
+        for (const b of blocks) {
+          const ln = Number(b.getAttribute('data-source-line') || 0);
+          if (ln >= line) {
+            target = b;
+            break;
+          }
+        }
+        if (!target) target = blocks[blocks.length - 1];
+        // 计算 target 相对 host 的位置
+        const hostRect = el.getBoundingClientRect();
+        const tRect = target.getBoundingClientRect();
+        const offsetInHost = tRect.top - hostRect.top + el.scrollTop;
+        // 把 target 滚到视口中央偏上
+        const desired = offsetInHost - el.clientHeight * 0.2;
+        el.scrollTop = Math.max(0, desired);
+      },
+      getBlockAnchors: () => {
+        const el = hostRef.current;
+        if (!el) return [];
+        const blocks = Array.from(el.children) as HTMLElement[];
+        const hostRect = el.getBoundingClientRect();
+        return blocks
+          .map((b) => {
+            const ln = Number(b.getAttribute('data-source-line') || 0);
+            const r = b.getBoundingClientRect();
+            return { line: ln, top: r.top - hostRect.top + el.scrollTop, bottom: r.bottom - hostRect.top + el.scrollTop };
+          })
+          .filter((a) => a.line > 0);
       },
     }),
     [],

@@ -3,6 +3,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import log from 'electron-log';
 import { formatTxtWithLlm, type LlmConfig } from './api/llm';
+import { loadSettings, saveSettings, type PersistedSettings } from './settings-store';
+import { markdownToDocxBuffer } from './markdown-to-docx';
 
 // ---- logging ----
 try { (log as any).initialize?.(); } catch {}
@@ -247,6 +249,50 @@ function registerIpc() {
     }
   });
 
+  // 递归列出目录下所有 .md/.markdown/.txt 文件（深度限制 + 排除常见巨型目录）
+  ipcMain.handle('fs:list-md-recursive', async (_e, opts: { rootDir: string; maxDepth?: number }) => {
+    try {
+      const { rootDir, maxDepth = 6 } = opts;
+      const SKIP = new Set(['node_modules', '.git', '.svn', '.hg', 'dist', 'build', '.next', '.cache', '.idea', '.vscode', '__pycache__']);
+      const results: { name: string; relPath: string; absPath: string; size: number }[] = [];
+
+      const walk = (dir: string, depth: number, relBase: string) => {
+        if (depth > maxDepth) return;
+        let entries: string[];
+        try {
+          entries = fs.readdirSync(dir);
+        } catch {
+          return;
+        }
+        for (const name of entries) {
+          if (SKIP.has(name)) continue;
+          // 跳过隐藏文件 / 以 . 开头的目录
+          if (name.startsWith('.')) continue;
+          const abs = path.join(dir, name);
+          let st: fs.Stats;
+          try {
+            st = fs.statSync(abs);
+          } catch {
+            continue;
+          }
+          const rel = relBase ? `${relBase}/${name}` : name;
+          if (st.isDirectory()) {
+            walk(abs, depth + 1, rel);
+          } else if (st.isFile() && /\.(md|markdown|txt)$/i.test(name)) {
+            results.push({ name, relPath: rel, absPath: abs, size: st.size });
+          }
+        }
+      };
+
+      walk(rootDir, 0, '');
+      // 按相对路径排序
+      results.sort((a, b) => a.relPath.localeCompare(b.relPath, 'zh-Hans-CN'));
+      return { ok: true, items: results };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
+
   ipcMain.handle('dialog:open-file', async () => {
     if (!mainWindow) return { canceled: true };
     return dialog.showOpenDialog(mainWindow, {
@@ -347,6 +393,33 @@ function registerIpc() {
   });
   ipcMain.on('window:close', () => mainWindow?.close());
   ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false);
+
+  // ---- 设置持久化 ----
+  ipcMain.handle('settings:load', () => {
+    return loadSettings();
+  });
+  ipcMain.handle('settings:save', (_e, patch: PersistedSettings) => {
+    return saveSettings(patch || {});
+  });
+
+  // ---- DOCX 导出 ----
+  ipcMain.handle('export:docx', async (_e, opts: { markdown: string; defaultName?: string }) => {
+    try {
+      if (!opts || !opts.markdown) return { ok: false, error: '没有可导出的内容' };
+      const r = await dialog.showSaveDialog(mainWindow!, {
+        defaultPath: opts.defaultName || 'untitled.docx',
+        filters: [{ name: 'Word 文档', extensions: ['docx'] }],
+      });
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+
+      const buf = await markdownToDocxBuffer(opts.markdown);
+      fs.writeFileSync(r.filePath, buf);
+      return { ok: true, path: r.filePath };
+    } catch (e) {
+      log.error('export:docx failed', e);
+      return { ok: false, error: (e as Error).message };
+    }
+  });
 }
 
 // ---- error guards ----

@@ -32,6 +32,16 @@ export type EditorHandle = {
   getScrollFraction: () => number;
   setScrollFraction: (f: number) => void;
   goToLine: (line: number) => void;
+  /** 当前光标所在源行号（1-based） */
+  getCursorLine: () => number;
+  /** 取编辑器视口顶部那行的行号（用于精确滚动同步） */
+  getTopVisibleLine: () => number;
+  /** 流式打开：在 doc 末尾追加一块文本（不触发 store 更新） */
+  appendChunk: (chunk: string) => void;
+  /** 清空整个 doc（流式打开前调用） */
+  clearDoc: () => void;
+  /** 当前 doc 内容（用于流式打开完成后同步回 store） */
+  getDoc: () => string;
   // ---- MD 格式化能力（供 FormatToolbar 调用）----
   /** 包裹选中文本。无选区时插入 before+placeholder+after 并选中 placeholder。
    *  - bold('**') / italic('*') / strike('~~') / code('`')
@@ -320,6 +330,62 @@ export const Editor = forwardRef<EditorHandle>(function EditorFn(_props, ref) {
           effects: EditorView.scrollIntoView(pos, { y: 'center' }),
         });
         v.focus();
+      },
+
+      getCursorLine: () => {
+        const v = viewRef.current;
+        if (!v) return 1;
+        const pos = v.state.selection.main.head;
+        return v.state.doc.lineAt(pos).number;
+      },
+
+      getTopVisibleLine: () => {
+        const v = viewRef.current;
+        if (!v) return 1;
+        // 取 scrollDOM 顶部 + 1 像素处的位置 → 找该位置的行号
+        const scrollEl = v.scrollDOM;
+        const topAbs = scrollEl.getBoundingClientRect().top + 1;
+        // 找到第一个 >= topAbs 的 block DOM 元素
+        const blocks = scrollEl.querySelectorAll<HTMLElement>('.cm-line');
+        for (const b of blocks) {
+          const r = b.getBoundingClientRect();
+          if (r.top >= topAbs) {
+            // 该 block 内的 text 节点开始位置 → 算 line
+            // CodeMirror 把每行包在 .cm-line 里，line block 数量 = doc line 数量
+            // 用一个简单的"遍历 doc lines 看哪个 top 最接近"算法
+            const lineBlocks = scrollEl.querySelectorAll<HTMLElement>('.cm-line');
+            for (let i = 0; i < lineBlocks.length; i++) {
+              const rb = lineBlocks[i].getBoundingClientRect();
+              if (rb.top >= topAbs) return i + 1;
+            }
+            return 1;
+          }
+        }
+        return 1;
+      },
+
+      appendChunk: (chunk) => {
+        const v = viewRef.current;
+        if (!v || !chunk) return;
+        const len = v.state.doc.length;
+        v.dispatch({
+          changes: { from: len, insert: chunk },
+          // 不滚动，让浏览器 / 用户保持当前位置
+        });
+      },
+
+      clearDoc: () => {
+        const v = viewRef.current;
+        if (!v) return;
+        v.dispatch({
+          changes: { from: 0, to: v.state.doc.length, insert: '' },
+        });
+      },
+
+      getDoc: () => {
+        const v = viewRef.current;
+        if (!v) return '';
+        return v.state.doc.toString();
       },
 
       // ---- MD 格式化能力（供 FormatToolbar 调用）----

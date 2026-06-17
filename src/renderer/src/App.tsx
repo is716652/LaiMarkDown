@@ -9,7 +9,7 @@ import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { FormatToolbar } from './components/FormatToolbar';
 import { useEditorStore } from './stores/editor';
-import { useThemeStore } from './stores/theme';
+import { useThemeStore, syncThemeFromSettings } from './stores/theme';
 import { useSettingsStore } from './stores/settings';
 import { useAiStore } from './stores/ai';
 import './styles/layout.css';
@@ -96,84 +96,108 @@ export const App: React.FC = () => {
     }
   };
 
-  // 滚动同步：仅在 split 模式下启用
-  // 滚动同步：仅在 split 模式下启用
+  // 滚动同步（行级）：仅在 split 模式下启用
+  // - 编辑器滚动 → 拿到视口顶部行号 → preview.scrollToSourceLine
+  // - 预览滚动 → 拿 anchors（每个 block 的源行号）→ 找最靠近 scrollTop 的 anchor → editor.goToLine
+  // - 冻结期：切 tab 期间不触发（preview 内容异步回填会让 scrollTop 跳变）
   useEffect(() => {
     if (viewMode !== 'split-h' && viewMode !== 'split-v') return;
     const editor = editorRef.current;
     const preview = previewRef.current;
     if (!editor || !preview) return;
 
-    // 切 tab 期间冻结滚动同步：preview 内容异步回填（Prism worker / Mermaid）会让 preview.scrollTop 短暂归零，
-    // 如果同步逻辑不冻结，会把 editor 一起拉回 0。frozen 期内 tick 不动。
+    // 切 tab 期间冻结滚动同步
     let frozenUntil = 0;
     let lastTabId = useEditorStore.getState().activeTabId;
     const unsub = useEditorStore.subscribe((s) => {
       if (s.activeTabId !== lastTabId) {
         lastTabId = s.activeTabId;
-        frozenUntil = Date.now() + 600; // 600ms 足够 Prism + Mermaid + 图片跑完
+        frozenUntil = Date.now() + 800; // 800ms 覆盖 prism + mermaid + 行号注入
       }
     });
 
-    // 防循环：source 是哪个，set 另一个 → set 之后，下次轮询检测到两端已同步就不动
-    let lastE = -1;
-    let lastP = -1;
+    // 行级同步：跟踪上一次 set 的源行号 / preview scrollTop，避免循环
+    let lastEditorLine = -1;
+    let lastPreviewTop = -1;
     let source: 'editor' | 'preview' | null = null;
-    let rafId = 0;
+
     const tick = () => {
       if (Date.now() < frozenUntil) {
-        // 冻结期间：重置 lastE/lastP 防止冻结结束时把"残留差"当成 source 触发
-        lastE = editor.getScrollFraction();
-        lastP = preview.getScrollFraction();
-        rafId = requestAnimationFrame(tick);
+        lastEditorLine = editor.getTopVisibleLine();
+        lastPreviewTop = preview.getBlockAnchors()[0]?.top ?? -1;
+        requestAnimationFrame(tick);
         return;
       }
-      const ef = editor.getScrollFraction();
-      const pf = preview.getScrollFraction();
 
-      // 哪边变化大哪边是 source（带 0.001 阈值防抖）
-      const dE = Math.abs(ef - lastE);
-      const dP = Math.abs(pf - lastP);
+      const editorLine = editor.getTopVisibleLine();
+      const previewTop = preview.getBlockAnchors()[0]?.top ?? -1;
+
       if (source === null) {
-        if (dE > 0.001) {
+        // 哪边变化大哪边是 source
+        const dE = Math.abs(editorLine - lastEditorLine);
+        const dP = Math.abs(previewTop - lastPreviewTop);
+        if (dE > 0 && dE >= dP) {
           source = 'editor';
-          preview.setScrollFraction(ef);
-          lastP = preview.getScrollFraction(); // 同步
-        } else if (dP > 0.001) {
+          preview.scrollToSourceLine(editorLine);
+          lastPreviewTop = preview.getBlockAnchors()[0]?.top ?? -1;
+        } else if (dP > 2) {
           source = 'preview';
-          editor.setScrollFraction(pf);
-          lastE = editor.getScrollFraction();
+          // 找到 preview.scrollTop 对应最近的 anchor → 用它的 source line
+          const anchors = preview.getBlockAnchors();
+          if (anchors.length > 0) {
+            const scrollTop = preview.getScrollTop();
+            // 找第一个 top > scrollTop 的 anchor → 用它前一个
+            let target = anchors[0];
+            for (let i = 0; i < anchors.length; i++) {
+              if (anchors[i].top <= scrollTop + 10) target = anchors[i];
+              else break;
+            }
+            editor.goToLine(target.line);
+            lastEditorLine = editor.getTopVisibleLine();
+          }
         }
       } else {
-        // 等下一次两端都"跟上了"才释放 source（用接近 lastX 判断）
-        const settledE = Math.abs(ef - lastE) < 0.0005;
-        const settledP = Math.abs(pf - lastP) < 0.0005;
+        // 等下一次两端都"跟上了"才释放 source
+        const settledE = Math.abs(editorLine - lastEditorLine) < 1;
+        const settledP = Math.abs(previewTop - lastPreviewTop) < 4;
         if (settledE && settledP) {
           source = null;
         } else if (source === 'editor' && !settledE) {
-          preview.setScrollFraction(ef);
-          lastP = preview.getScrollFraction();
+          preview.scrollToSourceLine(editorLine);
+          lastPreviewTop = preview.getBlockAnchors()[0]?.top ?? -1;
         } else if (source === 'preview' && !settledP) {
-          editor.setScrollFraction(pf);
-          lastE = editor.getScrollFraction();
+          const anchors = preview.getBlockAnchors();
+          if (anchors.length > 0) {
+            const scrollTop = preview.getScrollTop();
+            let target = anchors[0];
+            for (let i = 0; i < anchors.length; i++) {
+              if (anchors[i].top <= scrollTop + 10) target = anchors[i];
+              else break;
+            }
+            editor.goToLine(target.line);
+            lastEditorLine = editor.getTopVisibleLine();
+          }
         }
       }
-      lastE = ef;
-      lastP = pf;
-      rafId = requestAnimationFrame(tick);
+      lastEditorLine = editorLine;
+      lastPreviewTop = previewTop;
+      requestAnimationFrame(tick);
     };
-    rafId = requestAnimationFrame(tick);
 
+    const rafId = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(rafId);
       unsub();
     };
   }, [viewMode, showEditor, showPreview]);
 
-  // Bootstrap theme
+  // Bootstrap theme：等 settings 加载完成后，把 settings.theme 同步到 theme store
+  // （loaded 由 false 变 true 触发；初次 mount 时 loaded=false 不执行）
+  const settingsLoaded = useSettingsStore((s) => s.loaded);
   useEffect(() => {
-    useThemeStore.getState().setTheme(useThemeStore.getState().theme);
-  }, []);
+    if (!settingsLoaded) return;
+    syncThemeFromSettings();
+  }, [settingsLoaded]);
 
   // 把 splitRatio 同步到 CSS 变量（启动 / 外部变更时）
   useEffect(() => {
@@ -184,6 +208,8 @@ export const App: React.FC = () => {
 
   // App-level menu events (from main process)
   useEffect(() => {
+    // 把当前 editor handle 暴露到 window（供 fileOps 流式打开时拿 appendChunk/clearDoc）
+    (window as any).__currentEditorHandle = editorRef.current;
     const off = window.api.onMenu('menu:view-mode', (m) => {
       useEditorStore.getState().setViewMode(m as 'editor' | 'preview' | 'split-h' | 'split-v');
     });

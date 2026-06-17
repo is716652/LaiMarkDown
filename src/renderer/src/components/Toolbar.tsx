@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { FilePlus, FolderOpen, Save, FileDown, Search, Command, PanelLeft, Sun, Moon, Monitor, FileText, FileCode, Sparkles } from 'lucide-react';
+import { FilePlus, FolderOpen, Save, FileDown, Search, Command, PanelLeft, Sun, Moon, Monitor, FileText, FileCode, FileType, Sparkles } from 'lucide-react';
 import { useEditorStore } from '../stores/editor';
 import { useThemeStore } from '../stores/theme';
 import { useSettingsStore } from '../stores/settings';
@@ -11,7 +11,8 @@ export const Toolbar: React.FC = () => {
   const toggleSidebar = useEditorStore((s) => s.toggleSidebar);
   const viewMode = useEditorStore((s) => s.viewMode);
   const setViewMode = useEditorStore((s) => s.setViewMode);
-  const theme = useThemeStore((s) => s.theme);
+  // theme 持久化在 settings store 里（value of `theme`）
+  const theme = useSettingsStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -89,6 +90,9 @@ export const Toolbar: React.FC = () => {
               </button>
               <button className="export-item" onClick={() => { setExportOpen(false); void runExport('html'); }}>
                 <FileCode size={14} /> <span>导出为 HTML</span>
+              </button>
+              <button className="export-item" onClick={() => { setExportOpen(false); void runExport('docx'); }}>
+                <FileType size={14} /> <span>导出为 Word (.docx)</span>
               </button>
             </div>
           )}

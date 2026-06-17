@@ -42,6 +42,7 @@ export const CommandPalette: React.FC = () => {
       { id: 'set.toggleWrap', label: '切换自动换行', group: '设置', action: () => useSettingsStore.getState().set({ wordWrap: !useSettingsStore.getState().wordWrap }) },
       { id: 'export.pdf', label: '导出为 PDF', group: '导出', action: () => import('../utils/exportRunner').then((m) => m.runExport('pdf')) },
       { id: 'export.html', label: '导出为 HTML', group: '导出', action: () => import('../utils/exportRunner').then((m) => m.runExport('html')) },
+      { id: 'export.docx', label: '导出为 Word (.docx)', group: '导出', action: () => import('../utils/exportRunner').then((m) => m.runExport('docx')) },
     ];
     return list;
   }, []);

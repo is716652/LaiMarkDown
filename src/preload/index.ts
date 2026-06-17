@@ -11,6 +11,8 @@ const api = {
   downloadImage: (mdFilePath: string | null, url: string) =>
     ipcRenderer.invoke('fs:download-image', mdFilePath, url),
   readDir: (path: string) => ipcRenderer.invoke('fs:read-dir', path),
+  listMdRecursive: (opts: { rootDir: string; maxDepth?: number }) =>
+    ipcRenderer.invoke('fs:list-md-recursive', opts),
   // 从拖拽的 File 对象拿真实磁盘路径
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
   // dialogs
@@ -26,6 +28,8 @@ const api = {
   // export
   exportPDF: (opts: { html: string; savePath?: string; defaultName?: string }) =>
     ipcRenderer.invoke('export:pdf', opts),
+  exportDocx: (opts: { markdown: string; defaultName?: string }) =>
+    ipcRenderer.invoke('export:docx', opts),
   // LLM 排版
   formatTxt: (filePath: string, config: {
     apiKey: string;
@@ -44,6 +48,9 @@ const api = {
     ipcRenderer.on('window:maximize-change', listener);
     return () => ipcRenderer.removeListener('window:maximize-change', listener);
   },
+  // settings persistence
+  loadSettings: () => ipcRenderer.invoke('settings:load'),
+  saveSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:save', patch),
 };
 
 try {

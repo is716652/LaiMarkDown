@@ -5,7 +5,7 @@
 import { useEditorStore } from '../stores/editor';
 import { exportHTML, exportPDF, saveTextAs } from './exporters';
 
-type ExportKind = 'pdf' | 'html';
+type ExportKind = 'pdf' | 'html' | 'docx';
 
 export async function runExport(kind: ExportKind): Promise<void> {
   const tab = useEditorStore.getState().activeTab();
@@ -14,6 +14,8 @@ export async function runExport(kind: ExportKind): Promise<void> {
     return;
   }
   const title = tab.title || 'untitled';
+  // 文件名清洗：去扩展名 + 去非法字符
+  const safeBase = title.replace(/\.(md|markdown|markdown\.txt)$/i, '').replace(/[\\/:*?"<>|]/g, '_').trim() || 'untitled';
 
   if (kind === 'html') {
     const r = await exportHTML({ title, markdown: tab.content });
@@ -32,6 +34,18 @@ export async function runExport(kind: ExportKind): Promise<void> {
       return;
     }
     console.log('[export] PDF saved as', r.defaultName);
+    return;
+  }
+
+  if (kind === 'docx') {
+    const r = await window.api.exportDocx({ markdown: tab.content, defaultName: `${safeBase}.docx` });
+    if (!r.ok) {
+      if (!('canceled' in r && r.canceled)) {
+        alert('DOCX 导出失败：' + (r as { error?: string }).error);
+      }
+      return;
+    }
+    console.log('[export] DOCX saved as', r.path);
     return;
   }
 }

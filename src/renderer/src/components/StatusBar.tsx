@@ -6,6 +6,7 @@ export const StatusBar: React.FC = () => {
   const tab = useEditorStore((s) => s.activeTab());
   const viewMode = useEditorStore((s) => s.viewMode);
   const splitSwap = useEditorStore((s) => s.splitSwap);
+  const largeFileLoad = useEditorStore((s) => s.largeFileLoad);
   const aiFormatting = useAiStore((s) => s.formatting);
   const aiError = useAiStore((s) => s.error);
 
@@ -27,6 +28,17 @@ export const StatusBar: React.FC = () => {
     return (
       <div className="status-bar">
         <span className="sb-item sb-error">⚠ {aiError}</span>
+        <span className="sb-spacer" />
+        <span className="sb-item">{viewMode}{splitSwap ? ' (已互换)' : ''}</span>
+      </div>
+    );
+  }
+  // 大文件流式加载中
+  if (largeFileLoad) {
+    const mb = (largeFileLoad.totalBytes / 1024 / 1024).toFixed(2);
+    return (
+      <div className="status-bar">
+        <span className="sb-item sb-ai">📂 正在打开 {largeFileLoad.fileName} ({mb} MB) · {largeFileLoad.percent}%</span>
         <span className="sb-spacer" />
         <span className="sb-item">{viewMode}{splitSwap ? ' (已互换)' : ''}</span>
       </div>

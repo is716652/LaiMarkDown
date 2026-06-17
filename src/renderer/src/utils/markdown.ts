@@ -112,12 +112,60 @@ renderer.code = (code, infostring) => {
 marked.use({ renderer });
 
 /**
- * 把 markdown 转成 HTML
- * 同步执行——marked 自身快；高亮和 mermaid 在 Preview 里异步做
+ * �?markdown 转成 HTML
+ * 同步执行——marked 自身快；高亮�?mermaid �?Preview 里异步做
+ *
+ * 行号注入：
+ * - renderMarkdown 只负责出 HTML（不再做行号注入）
+ * - 行级同步需要每个 top-level block 的源行号，由 Preview 在 innerHTML 写入后
+ *   调 injectSourceLine(host, source) 把行号写到 host.children 的 data-source-line 属性
+ * - 行号数据从 marked.lexer 算出：按 token 顺序取 .raw 在源 markdown 里的位置
  */
 export function renderMarkdown(text: string): string {
   if (!text) return '';
   return marked.parse(text) as string;
+}
+
+/**
+ * 给 Preview 顶层 block 元素注入 data-source-line
+ * - host 是渲染容器，host.children 就是 top-level block
+ * - source 是原始 markdown 文本
+ *
+ * 必须在 innerHTML 写入后、mermaid 渲染前调用（host.children 要已存在且是块元素）
+ */
+export function injectSourceLine(host: HTMLElement, source: string): void {
+  if (!host || !source) return;
+  let lines: number[];
+  try {
+    const tokens = marked.lexer(source);
+    let cursor = 0;
+    lines = tokens
+      .filter((t) => t.type !== 'space' && t.type !== 'def')
+      .map((t) => {
+        const ln = sourceLine(source, (t as any).raw ?? '', cursor);
+        // 推进 cursor 到该 raw 末尾
+        const rawLen = ((t as any).raw ?? '').length;
+        const found = source.indexOf((t as any).raw ?? '', cursor);
+        if (found >= 0) cursor = found + rawLen;
+        return ln;
+      });
+  } catch {
+    return;
+  }
+  if (lines.length === 0) return;
+  const blocks = Array.from(host.children);
+  for (let i = 0; i < blocks.length; i++) {
+    const ln = lines[i];
+    if (ln != null) blocks[i].setAttribute('data-source-line', String(ln));
+  }
+}
+
+/** 给定 token.raw，反推它在 source 中的起始行号（1-based），从 fromIndex 起搜 */
+function sourceLine(source: string, raw: string, fromIndex: number): number {
+  if (!raw) return 1;
+  const idx = source.indexOf(raw, fromIndex);
+  if (idx < 0) return 1;
+  return source.slice(0, idx).split('\n').length;
 }
 
 // ---- 解析代码块时收集的元数据（供 Preview 用） ----
