@@ -31,7 +31,14 @@ export type EditorHandle = {
   focus: () => void;
   getScrollFraction: () => number;
   setScrollFraction: (f: number) => void;
-  goToLine: (line: number) => void;
+  goToLine: (line: number, opts?: { selectSpan?: number }) => void;
+  /**
+   * 滚动到源行号 line 对应的行（1-based）。
+   * 与 goToLine 的区别：本方法**不改 selection**，只滚视图——
+   * 用于滚动同步（preview → editor），用户主动滚 preview 时编辑器视图跟着滚，
+   * 但光标保持原位，避免"输 MD 标记时光标被滚动同步拉到行首"。
+   */
+  scrollToSourceLine: (line: number) => void;
   /** 当前光标所在源行号（1-based） */
   getCursorLine: () => number;
   /** 取编辑器视口顶部那行的行号（用于精确滚动同步） */
@@ -245,12 +252,18 @@ export const Editor = forwardRef<EditorHandle>(function EditorFn(_props, ref) {
     const isTabSwitch = lastTabIdRef.current !== activeTabId;
     lastTabIdRef.current = activeTabId ?? null;
 
-    if (view.state.doc.toString() !== doc) {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
-    }
-
-    // 切 tab 时恢复滚动位置（用 ref 拿最新 activeTabId）
+    // 关键：只在切 tab 时才把 store 的 doc 同步到 view。
+    // 平时（同一 tab 内用户输入）依赖 updateListener 的 updateContent 单向同步，
+    // 绝不能用 view.dispatch 完整 replace doc——CodeMirror 6 对 replace-all 会把
+    // selection clamp 到 {anchor:0}，IME compositionend 期间一旦判定 != 就会光标跳行首。
     if (isTabSwitch) {
+      if (view.state.doc.toString() !== doc) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: doc },
+          selection: { anchor: 0 }, // 切 tab 时重置光标是合理默认
+        });
+      }
+      // 切 tab 时恢复滚动位置（用 ref 拿最新 activeTabId）
       const id = activeTabIdRef.current ?? '__none__';
       const saved = scrollMap.current.get(id) ?? 0;
       if (saved > 0) {
@@ -320,16 +333,32 @@ export const Editor = forwardRef<EditorHandle>(function EditorFn(_props, ref) {
         const max = s.scrollHeight - s.clientHeight;
         s.scrollTop = max * Math.max(0, Math.min(1, f));
       },
-      goToLine: (line) => {
+      goToLine: (line, opts) => {
         const v = viewRef.current;
         if (!v) return;
-        const ln = Math.max(1, Math.min(line + 1, v.state.doc.lines));
-        const pos = v.state.doc.line(ln).from;
+        const total = v.state.doc.lines;
+        // line 参数语义：1-based（跟 getCursorLine / getTopVisibleLine 一致）
+        const startLine = Math.max(1, Math.min(line, total));
+        const span = Math.max(1, opts?.selectSpan ?? 1);
+        const endLine = Math.min(total, startLine + span - 1);
+        const anchor = v.state.doc.line(startLine).from;
+        const head = v.state.doc.line(endLine).to;
         v.dispatch({
-          selection: { anchor: pos },
-          effects: EditorView.scrollIntoView(pos, { y: 'center' }),
+          selection: span > 1 ? { anchor, head } : { anchor },
+          effects: EditorView.scrollIntoView(anchor, { y: 'center' }),
         });
         v.focus();
+      },
+      scrollToSourceLine: (line) => {
+        // 只滚视图，不动 selection。用于滚动同步 preview → editor。
+        const v = viewRef.current;
+        if (!v) return;
+        const total = v.state.doc.lines;
+        const ln = Math.max(1, Math.min(line, total));
+        const pos = v.state.doc.line(ln).from;
+        v.dispatch({
+          effects: EditorView.scrollIntoView(pos, { y: 'nearest' }),
+        });
       },
 
       getCursorLine: () => {

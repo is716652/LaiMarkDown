@@ -133,32 +133,38 @@ export function renderMarkdown(text: string): string {
  *
  * 必须在 innerHTML 写入后、mermaid 渲染前调用（host.children 要已存在且是块元素）
  */
-export function injectSourceLine(host: HTMLElement, source: string): void {
-  if (!host || !source) return;
-  let lines: number[];
-  try {
-    const tokens = marked.lexer(source);
-    let cursor = 0;
-    lines = tokens
-      .filter((t) => t.type !== 'space' && t.type !== 'def')
-      .map((t) => {
-        const ln = sourceLine(source, (t as any).raw ?? '', cursor);
+  export function injectSourceLine(host: HTMLElement, source: string): void {
+    if (!host || !source) return;
+    type BlockInfo = { line: number; span: number };
+    let infos: BlockInfo[] = [];
+    try {
+      const tokens = marked.lexer(source);
+      let cursor = 0;
+      const valid = tokens.filter((t) => t.type !== 'space' && t.type !== 'def');
+      infos = valid.map((t) => {
+        const raw = (t as any).raw ?? '';
+        const ln = sourceLine(source, raw, cursor);
         // 推进 cursor 到该 raw 末尾
-        const rawLen = ((t as any).raw ?? '').length;
-        const found = source.indexOf((t as any).raw ?? '', cursor);
-        if (found >= 0) cursor = found + rawLen;
-        return ln;
+        const found = source.indexOf(raw, cursor);
+        if (found >= 0) cursor = found + raw.length;
+        // span = raw 包含的换行符数 + 1（raw 通常带尾随 \n，split 长度正好对应行数）
+        // 截掉尾部空行（marked raw 末尾可能多一个 \n 导致多算一行）
+        const trimmed = raw.replace(/\n+$/, '');
+        const span = Math.max(1, trimmed.split('\n').length);
+        return { line: ln, span };
       });
-  } catch {
-    return;
+    } catch {
+      return;
+    }
+    if (infos.length === 0) return;
+    const blocks = Array.from(host.children);
+    for (let i = 0; i < blocks.length; i++) {
+      const info = infos[i];
+      if (!info) continue;
+      blocks[i].setAttribute('data-source-line', String(info.line));
+      blocks[i].setAttribute('data-source-span', String(info.span));
+    }
   }
-  if (lines.length === 0) return;
-  const blocks = Array.from(host.children);
-  for (let i = 0; i < blocks.length; i++) {
-    const ln = lines[i];
-    if (ln != null) blocks[i].setAttribute('data-source-line', String(ln));
-  }
-}
 
 /** 给定 token.raw，反推它在 source 中的起始行号（1-based），从 fromIndex 起搜 */
 function sourceLine(source: string, raw: string, fromIndex: number): number {

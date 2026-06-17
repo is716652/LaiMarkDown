@@ -26,6 +26,58 @@ if (!gotLock) {
 let mainWindow: BrowserWindow | null = null;
 const isDev = !app.isPackaged;
 
+// ---- file-association 启动参数处理 ----
+// 队列：在 mainWindow 还没 ready 时把要打开的文件路径先存这里，ready 后统一推给 renderer
+const pendingOpenPaths: string[] = [];
+let rendererReady = false;
+
+/** 从 argv 数组里过滤出"看起来是用户要打开的 .md / .markdown / .txt 路径"。
+ *  - 排除 exe 自身路径、NSIS wrapper 注入的额外参数
+ *  - 只保留磁盘上存在且扩展名匹配的绝对路径
+ *  - 路径里有空格也能正常处理（argv 已被 node 解析过）
+ */
+function pickFileFromArgv(argv: string[]): string[] {
+  if (!Array.isArray(argv)) return [];
+  const exePath = app.getPath('exe').toLowerCase();
+  const out: string[] = [];
+  for (const a of argv) {
+    if (!a || typeof a !== 'string') continue;
+    // 跳过 exe 自身（NSIS 安装后 argv[0] 是 wrapper，但 wrapper 会被 node 解析，path 可能以 .exe 结尾）
+    if (a.toLowerCase().endsWith('.exe')) continue;
+    // 跳过以 - / -- 开头的 flag
+    if (a.startsWith('-')) continue;
+    // 必须有合法扩展名
+    if (!/\.(md|markdown|txt)$/i.test(a)) continue;
+    // 必须是绝对路径
+    if (!path.isAbsolute(a)) continue;
+    // 必须存在
+    try {
+      if (!fs.existsSync(a) || !fs.statSync(a).isFile()) continue;
+    } catch {
+      continue;
+    }
+    out.push(path.resolve(a));
+  }
+  return out;
+}
+
+/** 把 pending 路径推给 renderer。renderer 没 ready 就先攒着。 */
+function flushPendingOpenPaths() {
+  if (!rendererReady) return;
+  if (pendingOpenPaths.length === 0) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const paths = pendingOpenPaths.splice(0, pendingOpenPaths.length);
+  log.info('open files from main:', paths);
+  mainWindow.webContents.send('file:open-from-main', paths);
+}
+
+/** 处理一组文件路径：先存 pending，等 renderer ready 推过去 */
+function openFilesFromMain(paths: string[]) {
+  if (paths.length === 0) return;
+  pendingOpenPaths.push(...paths);
+  flushPendingOpenPaths();
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -57,6 +109,13 @@ function createWindow() {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
     return { action: 'deny' };
+  });
+
+  // renderer 加载完成 → 标记 ready 并把待打开的文件路径推过去
+  mainWindow.webContents.once('did-finish-load', () => {
+    log.info('renderer did-finish-load');
+    rendererReady = true;
+    flushPendingOpenPaths();
   });
 
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
@@ -427,10 +486,25 @@ process.on('uncaughtException', (err) => log.error('uncaughtException', err));
 process.on('unhandledRejection', (reason) => log.error('unhandledRejection', reason));
 
 // ---- app lifecycle ----
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv /*, workingDirectory, additionalData */) => {
+  // 用户在来 MarkDown 已运行时从资源管理器右键打开 .md：
+  // 单实例锁把这次的 argv 透传给第一个进程，我们要做的：
+  //   1) 把窗口拉到前面（最小化就还原）
+  //   2) 把 argv 里的文件路径拿出来 → 推给 renderer 打开
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
+  }
+  const paths = pickFileFromArgv(argv);
+  if (paths.length > 0) openFilesFromMain(paths);
+});
+
+// macOS 备用入口：file-association 启动时走 open-file 事件
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (filePath && fs.existsSync(filePath)) {
+    openFilesFromMain([path.resolve(filePath)]);
   }
 });
 
@@ -466,6 +540,12 @@ app.whenReady().then(() => {
   registerIpc();
   buildMenu();
   createWindow();
+
+  // 首次启动 → 从 process.argv 拿要打开的文件（来自资源管理器右键"打开"）
+  // 注意：renderer 还没 ready 时，openFilesFromMain 会攒在 pending，等
+  //       createWindow 里的 did-finish-load 监听统一 flush
+  const startupPaths = pickFileFromArgv(process.argv);
+  if (startupPaths.length > 0) openFilesFromMain(startupPaths);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

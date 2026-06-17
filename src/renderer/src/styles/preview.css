@@ -4,6 +4,23 @@
   line-height: 1.7;
   user-select: text;
 }
+
+/* 顶层 block 可点击跳转 → editor 对应行（hover 提示） */
+.preview-area > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, table, pre) {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.12s ease;
+  margin-left: -6px;
+  margin-right: -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.preview-area > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, table, pre):hover {
+  background-color: rgba(99, 102, 241, 0.08);
+}
+[data-theme='dark'] .preview-area > :is(p, h1, h2, h3, h4, h5, h6, ul, ol, blockquote, table, pre):hover {
+  background-color: rgba(129, 140, 248, 0.14);
+}
 .preview-area h1, .preview-area h2, .preview-area h3, .preview-area h4, .preview-area h5, .preview-area h6 {
   margin: 1.6em 0 0.6em;
   font-weight: 700;

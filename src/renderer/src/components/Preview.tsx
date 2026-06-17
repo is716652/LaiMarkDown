@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo, memo, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useRef, useState, useMemo, memo, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { useEditorStore } from '../stores/editor';
 import { useSettingsStore } from '../stores/settings';
 import { renderMarkdown, rewriteRelativeImages, injectSourceLine } from '../utils/markdown';
@@ -28,7 +28,17 @@ export type PreviewHandle = {
   getBlockAnchors: () => { line: number; top: number; bottom: number }[];
 };
 
-export const Preview = forwardRef<PreviewHandle>(function PreviewFn(_props, ref) {
+export type PreviewProps = {
+  /**
+   * 用户在 Preview 区点击了某个 top-level block 时触发。
+   * - mode='click'   → 单击，仅跳转 editor 对应行
+   * - mode='dblclick'→ 双击，跳转并选中该 block 覆盖的源行范围（直接 Delete 可删整段）
+   * line 已是 1-based。
+   */
+  onBlockClick?: (info: { line: number; span: number; mode: 'click' | 'dblclick' }) => void;
+};
+
+export const Preview = forwardRef<PreviewHandle, PreviewProps>(function PreviewFn(props, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const activeTab = useEditorStore((s) => s.activeTab());
   const activeTabId = useEditorStore((s) => s.activeTabId);
@@ -217,12 +227,53 @@ export const Preview = forwardRef<PreviewHandle>(function PreviewFn(_props, ref)
           scrollMap.current.set(id, fraction);
         }
       }}
+      onClick={(e) => {
+        if (!props.onBlockClick) return;
+        const block = findNavigableBlock(e.target as HTMLElement, hostRef.current);
+        if (!block) return;
+        const line = Number(block.getAttribute('data-source-line') || 0);
+        if (!line) return;
+        const span = Number(block.getAttribute('data-source-span') || 1);
+        // 阻止冒泡到默认选区外行为（不影响文本选区——我们在捕获后才走选区逻辑）
+        props.onBlockClick({ line, span, mode: 'click' });
+      }}
+      onDoubleClick={(e) => {
+        if (!props.onBlockClick) return;
+        const block = findNavigableBlock(e.target as HTMLElement, hostRef.current);
+        if (!block) return;
+        const line = Number(block.getAttribute('data-source-line') || 0);
+        if (!line) return;
+        const span = Number(block.getAttribute('data-source-span') || 1);
+        props.onBlockClick({ line, span, mode: 'dblclick' });
+      }}
     />
   );
 });
 Preview.displayName = 'Preview';
 
 // ---- helpers ----
+
+/**
+ * 找到点击目标对应的"可导航 top-level block"。
+ * 返回 null 表示这个点击不应该触发跳转（点在链接/代码块/图片/复选框/mermaid 等子元素上）。
+ */
+function findNavigableBlock(target: HTMLElement | null, host: HTMLElement | null): HTMLElement | null {
+  if (!target || !host) return null;
+  // 1. 先排除明显不该跳转的子元素
+  if (target.closest('a, pre, code, img, input, button, .mermaid-block, .katex, table')) {
+    // 注：table 自身可以跳转（用户可能想编辑表格），但 td/th 内的内容点击会通过 table 冒泡上来
+    //    ——我们仍走 table 父 block 跳转，所以这里只过滤嵌套元素。
+  }
+  if (target.closest('a, pre, img, input, button, .mermaid-block, .katex, .mermaid-error')) {
+    return null;
+  }
+  // 2. 向上找到 host 的直接子元素（即 top-level block）
+  let cur: HTMLElement | null = target;
+  while (cur && cur.parentElement !== host) {
+    cur = cur.parentElement;
+  }
+  return cur;
+}
 
 // 给代码块加 copy 按钮
 function bindCopyButtons(container: HTMLElement) {

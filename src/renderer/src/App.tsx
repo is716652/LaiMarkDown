@@ -12,6 +12,7 @@ import { useEditorStore } from './stores/editor';
 import { useThemeStore, syncThemeFromSettings } from './stores/theme';
 import { useSettingsStore } from './stores/settings';
 import { useAiStore } from './stores/ai';
+import { openFile } from './utils/fileOps';
 import './styles/layout.css';
 
 const MIN_RATIO = 0.15;
@@ -98,7 +99,9 @@ export const App: React.FC = () => {
 
   // 滚动同步（行级）：仅在 split 模式下启用
   // - 编辑器滚动 → 拿到视口顶部行号 → preview.scrollToSourceLine
-  // - 预览滚动 → 拿 anchors（每个 block 的源行号）→ 找最靠近 scrollTop 的 anchor → editor.goToLine
+  // - 预览滚动 → 拿 anchors（每个 block 的源行号）→ 找最靠近 scrollTop 的 anchor →
+  //   editor.scrollToSourceLine（**只滚视图不动 selection**，避免用户输 MD 标记时
+  //   滚动同步把光标拉到行首）
   // - 冻结期：切 tab 期间不触发（preview 内容异步回填会让 scrollTop 跳变）
   useEffect(() => {
     if (viewMode !== 'split-h' && viewMode !== 'split-v') return;
@@ -152,7 +155,8 @@ export const App: React.FC = () => {
               if (anchors[i].top <= scrollTop + 10) target = anchors[i];
               else break;
             }
-            editor.goToLine(target.line);
+            // 只滚视图不动 selection（用户主动滚 preview 时编辑器只跟随滚视图，光标保持原位）
+            editor.scrollToSourceLine(target.line);
             lastEditorLine = editor.getTopVisibleLine();
           }
         }
@@ -174,7 +178,8 @@ export const App: React.FC = () => {
               if (anchors[i].top <= scrollTop + 10) target = anchors[i];
               else break;
             }
-            editor.goToLine(target.line);
+            // 只滚视图不动 selection
+            editor.scrollToSourceLine(target.line);
             lastEditorLine = editor.getTopVisibleLine();
           }
         }
@@ -222,11 +227,27 @@ export const App: React.FC = () => {
     const offTheme = window.api.onMenu('menu:toggle-theme', () => {
       useEditorStore.getState().toggleTheme();
     });
+    // 资源管理器右键 → 打开方式 → 来 MarkDown：
+    // 主进程拿到文件路径后通过这个 channel 推过来
+    const offOpenFromMain = window.api.onMenu(
+      'file:open-from-main',
+      (paths: unknown) => {
+        if (!Array.isArray(paths)) return;
+        // 顺序打开：每个文件一个 tab；多文件时聚焦到最后一个
+        (async () => {
+          for (const p of paths) {
+            if (typeof p !== 'string' || !p) continue;
+            await openFile(p);
+          }
+        })();
+      },
+    );
     return () => {
       off();
       offSwap();
       offSidebar();
       offTheme();
+      offOpenFromMain();
     };
   }, []);
 
@@ -234,6 +255,23 @@ export const App: React.FC = () => {
   const splitClass =
     viewMode === 'split-v' ? 'split-v' :
     viewMode === 'split-h' ? 'split-h' : '';
+
+  // 预览区点击/双击 → 跳转到 editor 对应行（双击时选中整段）
+  const onPreviewBlockClick = (info: { line: number; span: number; mode: 'click' | 'dblclick' }) => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    if (info.mode === 'click') {
+      editor.goToLine(info.line);
+    } else {
+      // dblclick：跳到第一行，光标在第一行；额外选中 [line, line+span) 整段
+      editor.goToLine(info.line, { selectSpan: info.span });
+    }
+    // 用户可能当前在 preview-only 视图 → 自动切到 split 让他看到 editor
+    const mode = useEditorStore.getState().viewMode;
+    if (mode === 'preview') {
+      useEditorStore.getState().setViewMode('split-h');
+    }
+  };
 
   // 拖拽分隔条 —— 直接操作 DOM CSS 变量，松手才写回 store
   const onDividerMouseDown = (e: React.MouseEvent) => {
@@ -310,7 +348,7 @@ export const App: React.FC = () => {
               className="pane pane-preview"
               style={{ display: showPreview ? '' : 'none' }}
             >
-              <Preview ref={previewRef} />
+              <Preview ref={previewRef} onBlockClick={onPreviewBlockClick} />
             </section>
           </div>
         </main>

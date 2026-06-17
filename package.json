@@ -69,6 +69,26 @@
       "target": "nsis",
       "icon": "resources/icon.ico"
     },
+    "fileAssociations": [
+      {
+        "ext": "md",
+        "name": "Markdown Document",
+        "description": "Markdown 文档",
+        "role": "Editor"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown File",
+        "description": "Markdown 文件",
+        "role": "Editor"
+      },
+      {
+        "ext": "txt",
+        "name": "Plain Text",
+        "description": "纯文本（兼容打开）",
+        "role": "Editor"
+      }
+    ],
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
